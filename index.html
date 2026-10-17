@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F6F5F2">
+<title>记账本</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; background:#F6F5F2; color:#26221F; min-height:100vh; }
+  .app { max-width:480px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:22px; font-weight:600; }
+  .subtitle { font-size:13px; color:#8A857E; margin-top:2px; }
+  .card { background:#FFFFFF; border-radius:16px; padding:18px; margin-top:16px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .summary-label { font-size:13px; color:#8A857E; }
+  .summary-amount { font-size:34px; font-weight:600; color:#C2453F; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .summary-count { font-size:12px; color:#8A857E; margin-top:4px; }
+  .field-label { font-size:13px; color:#8A857E; margin-bottom:8px; }
+  .amount-row { display:flex; align-items:baseline; gap:8px; border-bottom:1.5px solid #EDEAE4; padding-bottom:8px; }
+  .amount-row .yen { font-size:22px; color:#8A857E; font-weight:500; }
+  .amount-row input { border:none; outline:none; font-size:30px; font-weight:600; width:100%; color:#26221F; background:transparent; font-variant-numeric:tabular-nums; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+  .chip { border:1px solid #E4E0D8; background:#FBFAF7; border-radius:999px; padding:7px 14px; font-size:13px; color:#5C574F; cursor:pointer; transition:all .15s; user-select:none; }
+  .chip.active { background:#26221F; border-color:#26221F; color:#fff; }
+  .note-input { margin-top:14px; border-bottom:1.5px solid #EDEAE4; padding-bottom:8px; }
+  .note-input input { border:none; outline:none; font-size:15px; width:100%; background:transparent; }
+  .submit-btn { margin-top:18px; width:100%; background:#26221F; color:#fff; border:none; border-radius:12px; padding:14px; font-size:15px; font-weight:500; cursor:pointer; }
+  .submit-btn:active { transform:scale(.98); }
+  .list-title { font-size:14px; font-weight:600; margin:24px 4px 4px; }
+  .date-group { font-size:12px; color:#8A857E; margin:16px 4px 8px; }
+  .record { display:flex; align-items:center; padding:14px 4px; border-bottom:1px solid #F0EEE9; }
+  .record:last-child { border-bottom:none; }
+  .rec-icon { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; margin-right:12px; flex-shrink:0; }
+  .rec-main { flex:1; min-width:0; }
+  .rec-cat { font-size:15px; font-weight:500; }
+  .rec-note { font-size:12px; color:#8A857E; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rec-amount { font-size:16px; font-weight:600; color:#C2453F; font-variant-numeric:tabular-nums; }
+  .rec-del { margin-left:12px; width:28px; height:28px; border:none; background:none; color:#C4BFB6; font-size:14px; cursor:pointer; border-radius:50%; flex-shrink:0; }
+  .rec-del:active { background:#F0EEE9; color:#C2453F; }
+  .empty { text-align:center; color:#B4AFA6; font-size:13px; padding:36px 0; line-height:1.8; }
+  .toast { position:fixed; left:50%; bottom:32px; transform:translateX(-50%); background:#26221F; color:#fff; padding:11px 18px; border-radius:999px; font-size:13px; display:flex; gap:14px; align-items:center; box-shadow:0 4px 16px rgba(0,0,0,.18); }
+  .toast button { background:none; border:none; color:#F0B429; font-size:13px; font-weight:600; cursor:pointer; padding:0; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>记账本</h1>
+  <div class="subtitle">先记下来，再谈别的</div>
+
+  <div class="card">
+    <div class="summary-label">本月支出</div>
+    <div class="summary-amount" id="monthTotal">¥0.00</div>
+    <div class="summary-count" id="monthCount">共 0 笔</div>
+  </div>
+
+  <div class="card">
+    <div class="field-label">金额</div>
+    <div class="amount-row">
+      <span class="yen">¥</span>
+      <input id="amountInput" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
+    </div>
+    <div class="field-label" style="margin-top:16px;">分类</div>
+    <div class="chips" id="chips"></div>
+    <div class="note-input">
+      <input id="noteInput" type="text" placeholder="备注（选填）" maxlength="50" autocomplete="off">
+    </div>
+    <button class="submit-btn" id="submitBtn">记一笔</button>
+  </div>
+
+  <div class="list-title">全部记录</div>
+  <div id="list"></div>
+</div>
+
+<div class="toast hidden" id="toast">
+  <span>已删除</span>
+  <button id="undoBtn">撤销</button>
+</div>
+
+<script>
+const CATS = {
+  food:      { name: '餐饮', icon: '🍜', bg: '#FBEBDF' },
+  transport: { name: '交通', icon: '🚕', bg: '#E3EEF7' },
+  shopping:  { name: '购物', icon: '🛍️', bg: '#F6E7F0' },
+  home:      { name: '居住', icon: '🏠', bg: '#EAF1E4' },
+  fun:       { name: '娱乐', icon: '🎮', bg: '#EEE9F7' },
+  medical:   { name: '医疗', icon: '💊', bg: '#F9E6E4' },
+  other:     { name: '其他', icon: '📦', bg: '#F0EEE9' }
+};
+const STORE_KEY = 'jizhang_records_v1';
+let records = load();
+let selectedCat = 'food';
+let lastDeleted = null;
+let toastTimer = null;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  catch (e) { return []; }
+}
+function save() { localStorage.setItem(STORE_KEY, JSON.stringify(records)); }
+function pad2(n) { return String(n).padStart(2, '0'); }
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function fmtDate(ds) {
+  const today = todayStr();
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const yest = y.getFullYear() + '-' + pad2(y.getMonth() + 1) + '-' + pad2(y.getDate());
+  if (ds === today) return '今天';
+  if (ds === yest) return '昨天';
+  const p = ds.split('-');
+  return p[0] + '年' + Number(p[1]) + '月' + Number(p[2]) + '日';
+}
+function fmtMoney(n) { return '¥' + n.toFixed(2); }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function renderChips() {
+  const box = document.getElementById('chips');
+  box.innerHTML = '';
+  Object.keys(CATS).forEach(function (key) {
+    const c = CATS[key];
+    const el = document.createElement('div');
+    el.className = 'chip' + (key === selectedCat ? ' active' : '');
+    el.textContent = c.icon + ' ' + c.name;
+    el.onclick = function () { selectedCat = key; renderChips(); };
+    box.appendChild(el);
+  });
+}
+
+function renderSummary() {
+  const prefix = todayStr().slice(0, 7);
+  const monthRecs = records.filter(function (r) { return r.date.indexOf(prefix) === 0; });
+  const total = monthRecs.reduce(function (s, r) { return s + r.amount; }, 0);
+  document.getElementById('monthTotal').textContent = fmtMoney(total);
+  document.getElementById('monthCount').textContent = '共 ' + monthRecs.length + ' 笔';
+}
+
+function renderList() {
+  const box = document.getElementById('list');
+  if (records.length === 0) {
+    box.innerHTML = '<div class="empty">还没有记录<br>记下第一笔吧</div>';
+    return;
+  }
+  const sorted = records.slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
+  const groups = {};
+  sorted.forEach(function (r) { (groups[r.date] = groups[r.date] || []).push(r); });
+  let html = '';
+  Object.keys(groups).forEach(function (date) {
+    html += '<div class="date-group">' + fmtDate(date) + '</div>';
+    groups[date].forEach(function (r) {
+      const c = CATS[r.category] || CATS.other;
+      html += '<div class="record">'
+        + '<div class="rec-icon" style="background:' + c.bg + '">' + c.icon + '</div>'
+        + '<div class="rec-main"><div class="rec-cat">' + c.name + '</div>'
+        + (r.note ? '<div class="rec-note">' + esc(r.note) + '</div>' : '')
+        + '</div>'
+        + '<div class="rec-amount">-' + fmtMoney(r.amount).slice(1) + '</div>'
+        + '<button class="rec-del" data-id="' + r.id + '" aria-label="删除">✕</button>'
+        + '</div>';
+    });
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.rec-del').forEach(function (btn) {
+    btn.onclick = function () { delRecord(Number(btn.dataset.id)); };
+  });
+}
+
+function addRecord() {
+  const input = document.getElementById('amountInput');
+  const note = document.getElementById('noteInput').value.trim();
+  const val = parseFloat(input.value);
+  if (!val || val <= 0 || isNaN(val)) {
+    input.placeholder = '请输入有效金额';
+    input.focus();
+    return;
+  }
+  records.push({
+    id: Date.now(),
+    amount: Math.round(val * 100) / 100,
+    category: selectedCat,
+    note: note,
+    date: todayStr(),
+    createdAt: Date.now()
+  });
+  save();
+  renderSummary();
+  renderList();
+  input.value = '';
+  document.getElementById('noteInput').value = '';
+  input.placeholder = '0.00';
+  input.focus();
+}
+
+function delRecord(id) {
+  const idx = records.findIndex(function (r) { return r.id === id; });
+  if (idx === -1) return;
+  lastDeleted = { rec: records[idx], idx: idx };
+  records.splice(idx, 1);
+  save();
+  renderSummary();
+  renderList();
+  showToast();
+}
+
+function undoDelete() {
+  if (!lastDeleted) return;
+  records.splice(lastDeleted.idx, 0, lastDeleted.rec);
+  lastDeleted = null;
+  save();
+  renderSummary();
+  renderList();
+  hideToast();
+}
+
+function showToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.remove('hidden');
+  toastTimer = setTimeout(hideToast, 4000);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.add('hidden');
+  lastDeleted = null;
+}
+
+document.getElementById('submitBtn').onclick = addRecord;
+document.getElementById('undoBtn').onclick = undoDelete;
+document.getElementById('amountInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecord(); });
+document.getElementById('noteInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecord(); });
+
+renderChips();
+renderSummary();
+renderList();
+</script>
+</body>
+</html>
