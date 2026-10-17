@@ -14,6 +14,7 @@
   h1 { font-size:22px; font-weight:600; }
   .subtitle { font-size:13px; color:#8A857E; margin-top:2px; }
   .card { background:#FFFFFF; border-radius:16px; padding:18px; margin-top:16px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .warn { background:#FBF3E4; color:#8A6D1F; font-size:12px; line-height:1.7; border-radius:12px; padding:12px 14px; margin-top:16px; }
   .summary-label { font-size:13px; color:#8A857E; }
   .summary-amount { font-size:34px; font-weight:600; color:#C2453F; margin-top:4px; font-variant-numeric:tabular-nums; }
   .summary-count { font-size:12px; color:#8A857E; margin-top:4px; }
@@ -50,6 +51,8 @@
   <h1>记账本</h1>
   <div class="subtitle">先记下来，再谈别的</div>
 
+  <div class="warn hidden" id="storageWarn">当前预览环境不允许本地存储，记录刷新后会丢失——部署到正式网址后恢复正常，不影响功能体验</div>
+
   <div class="card">
     <div class="summary-label">本月支出</div>
     <div class="summary-amount" id="monthTotal">¥0.00</div>
@@ -75,7 +78,7 @@
 </div>
 
 <div class="toast hidden" id="toast">
-  <span>已删除</span>
+  <span class="toast-msg">已删除</span>
   <button id="undoBtn">撤销</button>
 </div>
 
@@ -90,16 +93,40 @@ const CATS = {
   other:     { name: '其他', icon: '📦', bg: '#F0EEE9' }
 };
 const STORE_KEY = 'jizhang_records_v1';
+const memStore = {};
+const storage = {
+  available: (function () {
+    try {
+      const k = '__jz_test__';
+      localStorage.setItem(k, '1');
+      localStorage.removeItem(k);
+      return true;
+    } catch (e) { return false; }
+  })(),
+  get: function (key) {
+    if (this.available) {
+      try { return localStorage.getItem(key); } catch (e) {}
+    }
+    return memStore[key] === undefined ? null : memStore[key];
+  },
+  set: function (key, val) {
+    if (this.available) {
+      try { localStorage.setItem(key, val); return; } catch (e) {}
+    }
+    memStore[key] = val;
+  }
+};
+
 let records = load();
 let selectedCat = 'food';
 let lastDeleted = null;
 let toastTimer = null;
 
 function load() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  try { return JSON.parse(storage.get(STORE_KEY)) || []; }
   catch (e) { return []; }
 }
-function save() { localStorage.setItem(STORE_KEY, JSON.stringify(records)); }
+function save() { storage.set(STORE_KEY, JSON.stringify(records)); }
 function pad2(n) { return String(n).padStart(2, '0'); }
 function todayStr() {
   const d = new Date();
@@ -173,18 +200,33 @@ function renderList() {
   });
 }
 
+function showToast(msg, undo) {
+  clearTimeout(toastTimer);
+  const t = document.getElementById('toast');
+  t.querySelector('.toast-msg').textContent = msg;
+  document.getElementById('undoBtn').classList.toggle('hidden', !undo);
+  t.classList.remove('hidden');
+  toastTimer = setTimeout(hideToast, undo ? 4000 : 1600);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.add('hidden');
+  lastDeleted = null;
+}
+
 function addRecord() {
   const input = document.getElementById('amountInput');
   const note = document.getElementById('noteInput').value.trim();
   const val = parseFloat(input.value);
   if (!val || val <= 0 || isNaN(val)) {
-    input.placeholder = '请输入有效金额';
+    showToast('请先输入有效金额', false);
     input.focus();
     return;
   }
+  const amount = Math.round(val * 100) / 100;
   records.push({
     id: Date.now(),
-    amount: Math.round(val * 100) / 100,
+    amount: amount,
     category: selectedCat,
     note: note,
     date: todayStr(),
@@ -196,6 +238,7 @@ function addRecord() {
   input.value = '';
   document.getElementById('noteInput').value = '';
   input.placeholder = '0.00';
+  showToast('已记下 ' + fmtMoney(amount), false);
   input.focus();
 }
 
@@ -207,7 +250,7 @@ function delRecord(id) {
   save();
   renderSummary();
   renderList();
-  showToast();
+  showToast('已删除', true);
 }
 
 function undoDelete() {
@@ -220,21 +263,14 @@ function undoDelete() {
   hideToast();
 }
 
-function showToast() {
-  clearTimeout(toastTimer);
-  document.getElementById('toast').classList.remove('hidden');
-  toastTimer = setTimeout(hideToast, 4000);
-}
-function hideToast() {
-  clearTimeout(toastTimer);
-  document.getElementById('toast').classList.add('hidden');
-  lastDeleted = null;
-}
-
 document.getElementById('submitBtn').onclick = addRecord;
 document.getElementById('undoBtn').onclick = undoDelete;
 document.getElementById('amountInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecord(); });
 document.getElementById('noteInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecord(); });
+
+if (!storage.available) {
+  document.getElementById('storageWarn').classList.remove('hidden');
+}
 
 renderChips();
 renderSummary();
